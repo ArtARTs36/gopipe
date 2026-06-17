@@ -100,7 +100,6 @@ func TestPipeline(t *testing.T) {
 			Name: "second",
 			Run: func(ctx context.Context, pl *payload) error {
 				panic("test panic")
-				return nil
 			},
 		})
 
