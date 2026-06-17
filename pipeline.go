@@ -90,6 +90,11 @@ func (p *Pipeline[pt]) runStep(
 
 	err = step.Run(ctx, payload)
 	if err != nil {
+		if step.ContinueOnError {
+			log.WarnContext(ctx, "[gopipe] step failed but continue", slog.Any("err", err))
+			return nil
+		}
+
 		log.ErrorContext(ctx, "[gopipe] step failed", slog.Any("err", err))
 
 		return err

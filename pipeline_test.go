@@ -2,6 +2,7 @@ package gopipe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,7 +17,7 @@ func TestPipeline(t *testing.T) {
 		Level: slog.LevelDebug,
 	})))
 
-	t.Run("test successfully simple pipeline", func(t *testing.T) {
+	t.Run("test successfully simple pipeline without conditions", func(t *testing.T) {
 		type payload struct {
 			firstStepCalled  bool
 			secondStepCalled bool
@@ -89,9 +90,6 @@ func TestPipeline(t *testing.T) {
 		pipeline := NewPipeline[*payload]()
 
 		pipeline.Add(Step[*payload]{
-			When: func(payload *payload) bool {
-				return false
-			},
 			Run: func(ctx context.Context, pl *payload) error {
 				pl.firstStepCalled = true
 				return nil
@@ -114,6 +112,39 @@ func TestPipeline(t *testing.T) {
 			Err:      fmt.Errorf("step panicked: test panic"),
 		}, err)
 
-		assert.False(t, pl.firstStepCalled, "first step must be called")
+		assert.True(t, pl.firstStepCalled, "first step must be called")
+	})
+
+	t.Run("test with failed step and continue-on-error=true", func(t *testing.T) {
+		type payload struct {
+			firstStepCalled  bool
+			secondStepCalled bool
+		}
+
+		pipeline := NewPipeline[*payload]()
+
+		pipeline.Add(Step[*payload]{
+			ContinueOnError: true,
+			Run: func(ctx context.Context, pl *payload) error {
+				pl.firstStepCalled = true
+				return errors.New("test error")
+			},
+		})
+
+		pipeline.Add(Step[*payload]{
+			Name: "second",
+			Run: func(ctx context.Context, pl *payload) error {
+				pl.secondStepCalled = true
+				return nil
+			},
+		})
+
+		pl := &payload{}
+
+		err := pipeline.Run(context.Background(), pl)
+		require.NoError(t, err)
+
+		assert.True(t, pl.firstStepCalled, "first step must be called")
+		assert.True(t, pl.secondStepCalled, "second step must be called")
 	})
 }
