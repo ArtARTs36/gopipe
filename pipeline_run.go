@@ -75,7 +75,7 @@ func (p *pipelineRun[pt]) runStep(
 		}
 	}()
 
-	log.With(slog.String("pipeline.step_name", step.Name))
+	log = log.With(slog.String("pipeline.step_name", step.Name))
 
 	if step.When != nil {
 		if !step.When(payload, Run{

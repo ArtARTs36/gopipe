@@ -26,7 +26,7 @@ func NewPipelineWithConfig[pt any](cfg Config) *Pipeline[pt] {
 	}
 
 	if cfg.PipelineName != "" {
-		cfg.Logger.With(slog.String("pipeline.name", cfg.PipelineName))
+		cfg.Logger = cfg.Logger.With(slog.String("pipeline.name", cfg.PipelineName))
 	}
 
 	return &Pipeline[pt]{
