@@ -259,6 +259,40 @@ func TestPipeline(t *testing.T) {
 
 		err := pipeline.Run(ctx, pl)
 		require.EqualError(t, err, "retryable: context canceled")
-		assert.Equal(t, int32(1), pl.attempts)
+		assert.Zero(t, pl.attempts)
+	})
+
+	t.Run("test pipeline stops before next step when context canceled", func(t *testing.T) {
+		type payload struct {
+			firstStepCalled  bool
+			secondStepCalled bool
+		}
+
+		pipeline := NewPipeline[*payload]()
+		ctx, cancel := context.WithCancel(context.Background())
+
+		pipeline.Add(Step[*payload]{
+			Name: "first",
+			Run: func(ctx context.Context, pl *payload) error {
+				pl.firstStepCalled = true
+				cancel()
+				return nil
+			},
+		})
+
+		pipeline.Add(Step[*payload]{
+			Name: "second",
+			Run: func(ctx context.Context, pl *payload) error {
+				pl.secondStepCalled = true
+				return nil
+			},
+		})
+
+		pl := &payload{}
+
+		err := pipeline.Run(ctx, pl)
+		require.EqualError(t, err, "second: context canceled after step \"first\": context canceled")
+		assert.True(t, pl.firstStepCalled, "first step must be called")
+		assert.False(t, pl.secondStepCalled, "second step must be not called")
 	})
 }

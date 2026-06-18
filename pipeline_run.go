@@ -37,7 +37,18 @@ func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
 
 	log.DebugContext(ctx, "[gopipe] running pipeline")
 
-	for _, step := range p.steps {
+	for i, step := range p.steps {
+		if err := ctx.Err(); err != nil {
+			if i > 0 {
+				err = fmt.Errorf("context canceled after step %q: %w", p.steps[i-1].Name, err)
+			}
+
+			return &StepError{
+				StepName: step.Name,
+				Err:      err,
+			}
+		}
+
 		err := p.runStep(ctx, log, step, payload)
 		if err != nil {
 			return &StepError{
