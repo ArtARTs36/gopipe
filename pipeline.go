@@ -2,10 +2,7 @@ package gopipe
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-
-	"github.com/google/uuid"
 )
 
 type Pipeline[pt any] struct {
@@ -47,58 +44,10 @@ func (p *Pipeline[pt]) Add(step Step[pt]) {
 }
 
 func (p *Pipeline[pt]) Run(ctx context.Context, payload pt) error {
-	log := p.cfg.Logger.With(slog.String("pipeline.run_id", uuid.Must(uuid.NewV7()).String()))
-
-	log.DebugContext(ctx, "[gopipe] running pipeline")
-
-	for _, step := range p.pipeline {
-		err := p.runStep(ctx, log, step, payload)
-		if err != nil {
-			return &StepError{
-				StepName: step.Name,
-				Err:      err,
-			}
-		}
+	run := PipelineRun[pt]{
+		log:   p.cfg.Logger,
+		steps: p.pipeline,
 	}
 
-	return nil
-}
-
-func (p *Pipeline[pt]) runStep(
-	ctx context.Context,
-	log *slog.Logger,
-	step Step[pt],
-	payload pt,
-) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("step panicked: %v", r)
-
-			log.ErrorContext(ctx, "[gopipe] step panicked", slog.Any("err", err))
-		}
-	}()
-
-	log.With(slog.String("pipeline.step_name", step.Name))
-
-	if !step.When(payload) {
-		log.DebugContext(ctx, "[gopipe] skip step")
-
-		return nil
-	}
-
-	log.DebugContext(ctx, "[gopipe] running step")
-
-	err = step.Run(ctx, payload)
-	if err != nil {
-		if step.ContinueOnError {
-			log.WarnContext(ctx, "[gopipe] step failed but continue", slog.Any("err", err))
-			return nil
-		}
-
-		log.ErrorContext(ctx, "[gopipe] step failed", slog.Any("err", err))
-
-		return err
-	}
-
-	return nil
+	return run.run(ctx, payload)
 }
