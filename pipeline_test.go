@@ -57,7 +57,7 @@ func TestPipeline(t *testing.T) {
 		pipeline := NewPipeline[*payload]()
 
 		pipeline.Add(Step[*payload]{
-			When: func(payload *payload) bool {
+			When: func(payload *payload, _ Run) bool {
 				return false
 			},
 			Run: func(ctx context.Context, pl *payload) error {

@@ -4,13 +4,21 @@ import "context"
 
 type Step[pt any] struct {
 	Name            string
-	When            func(payload pt) bool
+	When            func(payload pt, run Run) bool
 	Run             func(ctx context.Context, payload pt) error
 	ContinueOnError bool
 }
 
-func always[pt any]() func(payload pt) bool {
-	return func(pt) bool {
-		return true
-	}
+type Run struct {
+	result *pipelineRunResult
+}
+
+func (p *Run) StepSucceed(stepName string) bool {
+	_, ok := p.result.succeed[stepName]
+	return ok
+}
+
+func (p *Run) StepFailed(stepName string) bool {
+	_, ok := p.result.failed[stepName]
+	return ok
 }

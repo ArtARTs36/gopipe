@@ -75,6 +75,7 @@ func main() {
 	pipeline := gopipe.NewPipeline[*payload]()
 
 	pipeline.Add(gopipe.Step[*payload]{
+		Name: "first",
 		Run: func(ctx context.Context, pl *payload) error {
 			pl.firstName = "John"
 			return nil
@@ -82,8 +83,8 @@ func main() {
 	})
 
 	pipeline.Add(gopipe.Step[*payload]{
-		When: func(pl *payload) bool {
-			return pl.firstName == "John"
+		When: func(pl *payload, run gopipe.Run) bool {
+			return pl.firstName == "John" || run.StepSucceed("first")
         },
 		Run: func(ctx context.Context, pl *payload) error {
 			pl.lastName = "Doe"

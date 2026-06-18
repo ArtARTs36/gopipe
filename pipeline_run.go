@@ -8,12 +8,30 @@ import (
 	"github.com/google/uuid"
 )
 
-type PipelineRun[pt any] struct {
+type pipelineRun[pt any] struct {
 	log   *slog.Logger
 	steps []Step[pt]
+
+	result pipelineRunResult
 }
 
-func (p *PipelineRun[pt]) run(ctx context.Context, payload pt) error {
+type pipelineRunResult struct {
+	succeed map[string]struct{}
+	failed  map[string]struct{}
+}
+
+func newPipelineRun[pt any](log *slog.Logger, steps []Step[pt]) *pipelineRun[pt] {
+	return &pipelineRun[pt]{
+		log:   log,
+		steps: steps,
+		result: pipelineRunResult{
+			succeed: make(map[string]struct{}),
+			failed:  make(map[string]struct{}),
+		},
+	}
+}
+
+func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
 	log := p.log.With(slog.String("pipeline.run_id", uuid.Must(uuid.NewV7()).String()))
 
 	log.DebugContext(ctx, "[gopipe] running pipeline")
@@ -31,7 +49,7 @@ func (p *PipelineRun[pt]) run(ctx context.Context, payload pt) error {
 	return nil
 }
 
-func (p *PipelineRun[pt]) runStep(
+func (p *pipelineRun[pt]) runStep(
 	ctx context.Context,
 	log *slog.Logger,
 	step Step[pt],
@@ -47,16 +65,22 @@ func (p *PipelineRun[pt]) runStep(
 
 	log.With(slog.String("pipeline.step_name", step.Name))
 
-	if !step.When(payload) {
-		log.DebugContext(ctx, "[gopipe] skip step")
+	if step.When != nil {
+		if !step.When(payload, Run{
+			result: &p.result,
+		}) {
+			log.DebugContext(ctx, "[gopipe] skip step")
 
-		return nil
+			return nil
+		}
 	}
 
 	log.DebugContext(ctx, "[gopipe] running step")
 
 	err = step.Run(ctx, payload)
 	if err != nil {
+		p.result.failed[step.Name] = struct{}{}
+
 		if step.ContinueOnError {
 			log.WarnContext(ctx, "[gopipe] step failed but continue", slog.Any("err", err))
 			return nil
@@ -66,6 +90,8 @@ func (p *PipelineRun[pt]) runStep(
 
 		return err
 	}
+
+	p.result.succeed[step.Name] = struct{}{}
 
 	return nil
 }

@@ -36,18 +36,11 @@ func NewPipelineWithConfig[pt any](cfg Config) *Pipeline[pt] {
 }
 
 func (p *Pipeline[pt]) Add(step Step[pt]) {
-	if step.When == nil {
-		step.When = always[pt]()
-	}
-
 	p.pipeline = append(p.pipeline, step)
 }
 
 func (p *Pipeline[pt]) Run(ctx context.Context, payload pt) error {
-	run := PipelineRun[pt]{
-		log:   p.cfg.Logger,
-		steps: p.pipeline,
-	}
+	run := newPipelineRun[pt](p.cfg.Logger, p.pipeline)
 
 	return run.run(ctx, payload)
 }
