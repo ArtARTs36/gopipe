@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -77,21 +78,44 @@ func (p *pipelineRun[pt]) runStep(
 
 	log.DebugContext(ctx, "[gopipe] running step")
 
-	err = step.Run(ctx, payload)
-	if err != nil {
-		p.result.failed[step.Name] = struct{}{}
+	attempts := step.Retries + 1
 
-		if step.ContinueOnError {
-			log.WarnContext(ctx, "[gopipe] step failed but continue", slog.Any("err", err))
+	for attempt := uint(1); attempt <= attempts; attempt++ {
+		err = step.Run(ctx, payload)
+		if err == nil {
+			p.result.succeed[step.Name] = struct{}{}
 			return nil
 		}
 
-		log.ErrorContext(ctx, "[gopipe] step failed", slog.Any("err", err))
+		if attempt == attempts {
+			p.result.failed[step.Name] = struct{}{}
 
-		return err
+			if step.ContinueOnError {
+				log.WarnContext(ctx, "[gopipe] step failed but continue", slog.Any("err", err))
+				return nil
+			}
+
+			log.ErrorContext(ctx, "[gopipe] step failed", slog.Any("err", err))
+			return err
+		}
+
+		log.WarnContext(ctx, "[gopipe] step failed, retrying",
+			slog.Uint64("attempt", uint64(attempt)),
+			slog.Uint64("max_attempts", uint64(attempts)),
+			slog.Duration("retry_delay", step.RetryDelay),
+			slog.Any("err", err),
+		)
+
+		if step.RetryDelay <= 0 {
+			continue
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(step.RetryDelay):
+		}
 	}
-
-	p.result.succeed[step.Name] = struct{}{}
 
 	return nil
 }

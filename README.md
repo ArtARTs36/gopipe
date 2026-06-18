@@ -8,6 +8,7 @@ go get github.com/artarts36/gopipe
 
 Features
 - Continue on step error
+- Retry failed step with delay
 - Run step by conditions
 - When step panicked pipeline aborted and return error
 
@@ -138,5 +139,46 @@ func main() {
 
 	_ = pipeline.Run(context.Background(), pl)
 	fmt.Println(pl.firstName, pl.lastName)
+}
+```
+
+### Retry failed step
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/artarts36/gopipe"
+)
+
+func main() {
+	type payload struct {
+		attempts int
+	}
+
+	pipeline := gopipe.NewPipeline[*payload]()
+
+	pipeline.Add(gopipe.Step[*payload]{
+		Retries:    2,
+		RetryDelay: time.Second,
+		Run: func(ctx context.Context, pl *payload) error {
+			pl.attempts++
+			if pl.attempts < 3 {
+				return errors.New("temporary error")
+			}
+
+			return nil
+		},
+	})
+
+	pl := &payload{}
+
+	_ = pipeline.Run(context.Background(), pl)
+	fmt.Println(pl.attempts)
 }
 ```

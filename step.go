@@ -1,12 +1,18 @@
 package gopipe
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type Step[pt any] struct {
 	Name            string
 	When            func(payload pt, run Run) bool
 	Run             func(ctx context.Context, payload pt) error
 	ContinueOnError bool
+
+	Retries    uint
+	RetryDelay time.Duration
 }
 
 type Run struct {
