@@ -13,6 +13,12 @@ type Run struct {
 	result *pipelineRunResult
 }
 
+func When[pt any](when func(payload pt) bool) func(payload pt, run Run) bool {
+	return func(payload pt, _ Run) bool {
+		return when(payload)
+	}
+}
+
 func (p *Run) StepSucceed(stepName string) bool {
 	_, ok := p.result.succeed[stepName]
 	return ok
