@@ -10,8 +10,10 @@ import (
 )
 
 type pipelineRun[pt any] struct {
-	log   *slog.Logger
-	steps []Step[pt]
+	log          *slog.Logger
+	pipelineName string
+	metrics      Metrics
+	steps        []Step[pt]
 
 	result pipelineRunResult
 }
@@ -21,10 +23,12 @@ type pipelineRunResult struct {
 	failed  map[string]struct{}
 }
 
-func newPipelineRun[pt any](log *slog.Logger, steps []Step[pt]) *pipelineRun[pt] {
+func newPipelineRun[pt any](log *slog.Logger, pipelineName string, steps []Step[pt], metrics Metrics) *pipelineRun[pt] {
 	return &pipelineRun[pt]{
-		log:   log,
-		steps: steps,
+		log:          log,
+		pipelineName: pipelineName,
+		steps:        steps,
+		metrics:      metrics,
 		result: pipelineRunResult{
 			succeed: make(map[string]struct{}),
 			failed:  make(map[string]struct{}),
@@ -34,6 +38,8 @@ func newPipelineRun[pt any](log *slog.Logger, steps []Step[pt]) *pipelineRun[pt]
 
 func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
 	log := p.log.With(slog.String("pipeline.run_id", uuid.Must(uuid.NewV7()).String()))
+
+	p.metrics.IncPipelineStarted(p.pipelineName)
 
 	log.DebugContext(ctx, "[gopipe] running pipeline")
 
@@ -67,11 +73,17 @@ func (p *pipelineRun[pt]) runStep(
 	step Step[pt],
 	payload pt,
 ) (err error) {
+	failedRecorded := false
+
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("step panicked: %v", r)
 
 			log.ErrorContext(ctx, "[gopipe] step panicked", slog.Any("err", err))
+		}
+
+		if err != nil && !failedRecorded {
+			p.recordStepFailed(step.Name)
 		}
 	}()
 
@@ -87,6 +99,8 @@ func (p *pipelineRun[pt]) runStep(
 		}
 	}
 
+	p.metrics.IncStepStarted(p.pipelineName, step.Name)
+
 	log.DebugContext(ctx, "[gopipe] running step")
 
 	attempts := step.Retries + 1
@@ -94,14 +108,15 @@ func (p *pipelineRun[pt]) runStep(
 	for attempt := uint(1); attempt <= attempts; attempt++ {
 		err = step.Run(ctx, payload)
 		if err == nil {
-			p.result.succeed[step.Name] = struct{}{}
+			p.recordStepSucceed(step.Name)
 			return nil
 		}
 
 		if attempt == attempts {
-			p.result.failed[step.Name] = struct{}{}
-
 			if step.ContinueOnError {
+				p.recordStepFailed(step.Name)
+				failedRecorded = true
+
 				log.WarnContext(ctx, "[gopipe] step failed but continue", slog.Any("err", err))
 				return nil
 			}
@@ -129,4 +144,14 @@ func (p *pipelineRun[pt]) runStep(
 	}
 
 	return nil
+}
+
+func (p *pipelineRun[pt]) recordStepSucceed(stepName string) {
+	p.result.succeed[stepName] = struct{}{}
+	p.metrics.IncStepSucceed(p.pipelineName, stepName)
+}
+
+func (p *pipelineRun[pt]) recordStepFailed(stepName string) {
+	p.result.failed[stepName] = struct{}{}
+	p.metrics.IncStepFailed(p.pipelineName, stepName)
 }

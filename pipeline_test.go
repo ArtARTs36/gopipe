@@ -14,6 +14,42 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type testMetrics struct {
+	pipelineStarted map[string]int
+	stepStarted     map[string]int
+	stepSucceed     map[string]int
+	stepFailed      map[string]int
+}
+
+func newTestMetrics() *testMetrics {
+	return &testMetrics{
+		pipelineStarted: make(map[string]int),
+		stepStarted:     make(map[string]int),
+		stepSucceed:     make(map[string]int),
+		stepFailed:      make(map[string]int),
+	}
+}
+
+func (m *testMetrics) IncPipelineStarted(pipelineName string) {
+	m.pipelineStarted[pipelineName]++
+}
+
+func (m *testMetrics) IncStepStarted(pipelineName, stepName string) {
+	m.stepStarted[m.stepKey(pipelineName, stepName)]++
+}
+
+func (m *testMetrics) IncStepSucceed(pipelineName, stepName string) {
+	m.stepSucceed[m.stepKey(pipelineName, stepName)]++
+}
+
+func (m *testMetrics) IncStepFailed(pipelineName, stepName string) {
+	m.stepFailed[m.stepKey(pipelineName, stepName)]++
+}
+
+func (m *testMetrics) stepKey(pipelineName, stepName string) string {
+	return pipelineName + "/" + stepName
+}
+
 func TestPipeline(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
@@ -294,5 +330,106 @@ func TestPipeline(t *testing.T) {
 		require.EqualError(t, err, "second: context canceled after step \"first\": context canceled")
 		assert.True(t, pl.firstStepCalled, "first step must be called")
 		assert.False(t, pl.secondStepCalled, "second step must be not called")
+	})
+
+	t.Run("test metrics used", func(t *testing.T) {
+		tests := []struct {
+			name                    string
+			steps                   []Step[*struct{}]
+			expectedErr             string
+			expectedPipelineStarted map[string]int
+			expectedStepStarted     map[string]int
+			expectedStepSucceed     map[string]int
+			expectedStepFailed      map[string]int
+		}{
+			{
+				name: "success skip and fail with continue",
+				steps: []Step[*struct{}]{
+					{
+						Name: "first",
+						Run: func(ctx context.Context, payload *struct{}) error {
+							return nil
+						},
+					},
+					{
+						Name: "skipped",
+						When: func(payload *struct{}, run Run) bool {
+							return false
+						},
+						Run: func(ctx context.Context, payload *struct{}) error {
+							return nil
+						},
+					},
+					{
+						Name:            "failed",
+						ContinueOnError: true,
+						Run: func(ctx context.Context, payload *struct{}) error {
+							return errors.New("boom")
+						},
+					},
+				},
+				expectedPipelineStarted: map[string]int{
+					"deploy": 1,
+				},
+				expectedStepStarted: map[string]int{
+					"deploy/first":  1,
+					"deploy/failed": 1,
+				},
+				expectedStepSucceed: map[string]int{
+					"deploy/first": 1,
+				},
+				expectedStepFailed: map[string]int{
+					"deploy/failed": 1,
+				},
+			},
+			{
+				name: "panic marks failed",
+				steps: []Step[*struct{}]{
+					{
+						Name: "panic",
+						Run: func(ctx context.Context, payload *struct{}) error {
+							panic("boom")
+						},
+					},
+				},
+				expectedErr: "panic: step panicked: boom",
+				expectedPipelineStarted: map[string]int{
+					"deploy": 1,
+				},
+				expectedStepStarted: map[string]int{
+					"deploy/panic": 1,
+				},
+				expectedStepSucceed: map[string]int{},
+				expectedStepFailed: map[string]int{
+					"deploy/panic": 1,
+				},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				metrics := newTestMetrics()
+				pipeline := NewPipelineWithConfig[*struct{}](Config{
+					PipelineName: "deploy",
+					Metrics:      metrics,
+				})
+
+				for _, step := range tt.steps {
+					pipeline.Add(step)
+				}
+
+				err := pipeline.Run(context.Background(), &struct{}{})
+				if tt.expectedErr == "" {
+					require.NoError(t, err)
+				} else {
+					require.EqualError(t, err, tt.expectedErr)
+				}
+
+				assert.Equal(t, tt.expectedPipelineStarted, metrics.pipelineStarted)
+				assert.Equal(t, tt.expectedStepStarted, metrics.stepStarted)
+				assert.Equal(t, tt.expectedStepSucceed, metrics.stepSucceed)
+				assert.Equal(t, tt.expectedStepFailed, metrics.stepFailed)
+			})
+		}
 	})
 }
