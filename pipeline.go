@@ -13,7 +13,8 @@ type Pipeline[pt any] struct {
 type Config struct {
 	PipelineName string
 
-	Logger *slog.Logger
+	Logger  *slog.Logger
+	Metrics Metrics
 }
 
 func NewPipeline[pt any]() *Pipeline[pt] {
@@ -29,6 +30,10 @@ func NewPipelineWithConfig[pt any](cfg Config) *Pipeline[pt] {
 		cfg.Logger = cfg.Logger.With(slog.String("pipeline.name", cfg.PipelineName))
 	}
 
+	if cfg.Metrics == nil {
+		cfg.Metrics = defaultMetrics
+	}
+
 	return &Pipeline[pt]{
 		pipeline: make([]Step[pt], 0),
 		cfg:      cfg,
@@ -40,7 +45,7 @@ func (p *Pipeline[pt]) Add(step Step[pt]) {
 }
 
 func (p *Pipeline[pt]) Run(ctx context.Context, payload pt) error {
-	run := newPipelineRun[pt](p.cfg.Logger, p.pipeline)
+	run := newPipelineRun[pt](p.cfg.Logger, p.cfg.PipelineName, p.pipeline, p.cfg.Metrics)
 
 	return run.run(ctx, payload)
 }
