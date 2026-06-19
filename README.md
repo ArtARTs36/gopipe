@@ -11,6 +11,7 @@ Features
 - Retry failed step with delay
 - Run step by conditions
 - When step panicked pipeline aborted and return error
+- Collect metrics
 
 ## Usage examples
 
@@ -24,12 +25,15 @@ import (
 	"fmt"
 
 	"github.com/artarts36/gopipe"
+	"github.com/artarts36/gopipe/pkg/prometheus"
 )
 
 func main() {
+	prometheus.MustRegister()
+
 	type payload struct {
-		firstName  string
-		lastName string
+		firstName string
+		lastName  string
 	}
 
 	pipeline := gopipe.NewPipeline[*payload]()
@@ -63,14 +67,17 @@ package main
 import (
 	"context"
 	"fmt"
-
+	
 	"github.com/artarts36/gopipe"
+	"github.com/artarts36/gopipe/pkg/prometheus"
 )
 
 func main() {
+	prometheus.MustRegister()
+
 	type payload struct {
-		firstName  string
-		lastName string
+		firstName string
+		lastName  string
 	}
 
 	pipeline := gopipe.NewPipeline[*payload]()
@@ -86,7 +93,7 @@ func main() {
 	pipeline.Add(gopipe.Step[*payload]{
 		When: func(pl *payload, run gopipe.Run) bool {
 			return pl.firstName == "John" || run.StepSucceed("first")
-        },
+		},
 		Run: func(ctx context.Context, pl *payload) error {
 			pl.lastName = "Doe"
 			return nil
@@ -111,9 +118,12 @@ import (
 	"fmt"
 
 	"github.com/artarts36/gopipe"
+	"github.com/artarts36/gopipe/pkg/prometheus"
 )
 
 func main() {
+	prometheus.MustRegister()
+
 	type payload struct {
 		firstName string
 		lastName  string
@@ -154,9 +164,12 @@ import (
 	"time"
 
 	"github.com/artarts36/gopipe"
+	"github.com/artarts36/gopipe/pkg/prometheus"
 )
 
 func main() {
+	prometheus.MustRegister()
+
 	type payload struct {
 		attempts int
 	}
