@@ -11,7 +11,7 @@ Features
 - Retry failed step with delay
 - Run step by conditions
 - When step panicked pipeline aborted and return error
-- Collect metrics
+- [Metrics per pipeline and step](./docs/monitoring.md)
 
 ## Usage examples
 
