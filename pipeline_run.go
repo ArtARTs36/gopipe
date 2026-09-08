@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -72,6 +73,7 @@ func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
 				Key:   "gopipe.step.name",
 				Value: attribute.StringValue(step.Name),
 			}))
+			pipeSpan.SetStatus(codes.Error, err.Error())
 
 			return &StepError{
 				StepName: step.Name,
@@ -85,6 +87,7 @@ func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
 				Key:   "gopipe.step.name",
 				Value: attribute.StringValue(step.Name),
 			}))
+			pipeSpan.SetStatus(codes.Error, err.Error())
 
 			return &StepError{
 				StepName: step.Name,
@@ -122,12 +125,15 @@ func (p *pipelineRun[pt]) runStep( //nolint:gocognit // nn
 		if err != nil && !failedRecorded {
 			p.recordStepFailed(step.Name)
 			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 		}
 	}()
 
 	log = log.With(slog.String("pipeline.step_name", step.Name))
 
 	if step.When != nil {
+		span.AddEvent("Skipped")
+
 		if !step.When(payload, Run{
 			result: &p.result,
 		}) {
@@ -152,6 +158,8 @@ func (p *pipelineRun[pt]) runStep( //nolint:gocognit // nn
 
 		if attempt == attempts {
 			if step.ContinueOnError {
+				span.AddEvent("Continue on error")
+
 				p.recordStepFailed(step.Name)
 				failedRecorded = true
 
