@@ -3,11 +3,16 @@ package gopipe
 import (
 	"context"
 	"log/slog"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 type Pipeline[pt any] struct {
 	pipeline []Step[pt]
 	cfg      Config
+	tracer   trace.Tracer
 }
 
 type Config struct {
@@ -15,6 +20,9 @@ type Config struct {
 
 	Logger  *slog.Logger
 	Metrics Metrics
+
+	TraceDisabled  bool
+	TracerProvider trace.TracerProvider
 }
 
 func NewPipeline[pt any]() *Pipeline[pt] {
@@ -34,9 +42,18 @@ func NewPipelineWithConfig[pt any](cfg Config) *Pipeline[pt] {
 		cfg.Metrics = defaultMetrics
 	}
 
+	if cfg.TracerProvider == nil {
+		if cfg.TraceDisabled {
+			cfg.TracerProvider = noop.NewTracerProvider()
+		} else {
+			cfg.TracerProvider = otel.GetTracerProvider()
+		}
+	}
+
 	return &Pipeline[pt]{
 		pipeline: make([]Step[pt], 0),
 		cfg:      cfg,
+		tracer:   newTracer(cfg.TracerProvider),
 	}
 }
 
@@ -45,7 +62,7 @@ func (p *Pipeline[pt]) Add(step Step[pt]) {
 }
 
 func (p *Pipeline[pt]) Run(ctx context.Context, payload pt) error {
-	run := newPipelineRun[pt](p.cfg.Logger, p.cfg.PipelineName, p.pipeline, p.cfg.Metrics)
+	run := newPipelineRun[pt](p.cfg.Logger, p.cfg.PipelineName, p.pipeline, p.cfg.Metrics, p.tracer)
 
 	return run.run(ctx, payload)
 }

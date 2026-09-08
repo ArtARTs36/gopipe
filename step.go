@@ -3,10 +3,13 @@ package gopipe
 import (
 	"context"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type Step[pt any] struct {
 	Name            string
+	Attributes      Attributes[pt]
 	When            func(payload pt, run Run) bool
 	Run             func(ctx context.Context, payload pt) error
 	ContinueOnError bool
@@ -17,6 +20,10 @@ type Step[pt any] struct {
 
 type Run struct {
 	result *pipelineRunResult
+}
+
+type Attributes[pt any] struct {
+	Trace func(pt) []attribute.KeyValue
 }
 
 func When[pt any](when func(payload pt) bool) func(payload pt, run Run) bool {

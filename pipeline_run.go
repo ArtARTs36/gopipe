@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type pipelineRun[pt any] struct {
@@ -16,6 +18,7 @@ type pipelineRun[pt any] struct {
 	steps        []Step[pt]
 
 	result pipelineRunResult
+	tracer trace.Tracer
 }
 
 type pipelineRunResult struct {
@@ -23,7 +26,13 @@ type pipelineRunResult struct {
 	failed  map[string]struct{}
 }
 
-func newPipelineRun[pt any](log *slog.Logger, pipelineName string, steps []Step[pt], metrics Metrics) *pipelineRun[pt] {
+func newPipelineRun[pt any](
+	log *slog.Logger,
+	pipelineName string,
+	steps []Step[pt],
+	metrics Metrics,
+	tracer trace.Tracer,
+) *pipelineRun[pt] {
 	return &pipelineRun[pt]{
 		log:          log,
 		pipelineName: pipelineName,
@@ -33,11 +42,19 @@ func newPipelineRun[pt any](log *slog.Logger, pipelineName string, steps []Step[
 			succeed: make(map[string]struct{}),
 			failed:  make(map[string]struct{}),
 		},
+		tracer: tracer,
 	}
 }
 
 func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
-	log := p.log.With(slog.String("pipeline.run_id", uuid.Must(uuid.NewV7()).String()))
+	runID := uuid.Must(uuid.NewV7()).String()
+
+	ctx, pipeSpan := p.tracer.Start(ctx, p.pipelineName+".Start", trace.WithAttributes(
+		attribute.String("gopipe.pipeline.run_id", runID)),
+	)
+	defer pipeSpan.End()
+
+	log := p.log.With(slog.String("pipeline.run_id", runID))
 
 	p.metrics.IncPipelineStarted(p.pipelineName)
 
@@ -45,9 +62,16 @@ func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
 
 	for i, step := range p.steps {
 		if err := ctx.Err(); err != nil {
+			pipeSpan.AddEvent("timeout exceeded")
+
 			if i > 0 {
 				err = fmt.Errorf("context canceled after step %q: %w", p.steps[i-1].Name, err)
 			}
+
+			pipeSpan.RecordError(err, trace.WithAttributes(attribute.KeyValue{
+				Key:   "gopipe.step.name",
+				Value: attribute.StringValue(step.Name),
+			}))
 
 			return &StepError{
 				StepName: step.Name,
@@ -57,6 +81,11 @@ func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
 
 		err := p.runStep(ctx, log, step, payload)
 		if err != nil {
+			pipeSpan.RecordError(err, trace.WithAttributes(attribute.KeyValue{
+				Key:   "gopipe.step.name",
+				Value: attribute.StringValue(step.Name),
+			}))
+
 			return &StepError{
 				StepName: step.Name,
 				Err:      err,
@@ -67,12 +96,20 @@ func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
 	return nil
 }
 
-func (p *pipelineRun[pt]) runStep(
+func (p *pipelineRun[pt]) runStep( //nolint:gocognit // nn
 	ctx context.Context,
 	log *slog.Logger,
 	step Step[pt],
 	payload pt,
 ) (err error) {
+	var attrs []attribute.KeyValue
+	if step.Attributes.Trace != nil {
+		attrs = step.Attributes.Trace(payload)
+	}
+
+	ctx, span := p.tracer.Start(ctx, step.Name, trace.WithAttributes(attrs...))
+	defer span.End()
+
 	failedRecorded := false
 
 	defer func() {
@@ -84,6 +121,7 @@ func (p *pipelineRun[pt]) runStep(
 
 		if err != nil && !failedRecorded {
 			p.recordStepFailed(step.Name)
+			span.RecordError(err)
 		}
 	}()
 
@@ -124,6 +162,8 @@ func (p *pipelineRun[pt]) runStep(
 			log.ErrorContext(ctx, "[gopipe] step failed", slog.Any("err", err))
 			return err
 		}
+
+		span.AddEvent("retry", trace.WithAttributes(attribute.Int("attempt", int(attempt))))
 
 		log.WarnContext(ctx, "[gopipe] step failed, retrying",
 			slog.Uint64("attempt", uint64(attempt)),
