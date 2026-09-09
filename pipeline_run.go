@@ -132,12 +132,11 @@ func (p *pipelineRun[pt]) runStep( //nolint:gocognit // nn
 	log = log.With(slog.String("pipeline.step_name", step.Name))
 
 	if step.When != nil {
-		span.AddEvent("Skipped")
-
 		if !step.When(payload, Run{
 			result: &p.result,
 		}) {
 			log.DebugContext(ctx, "[gopipe] skip step")
+			span.AddEvent("Skipped")
 
 			return nil
 		}
