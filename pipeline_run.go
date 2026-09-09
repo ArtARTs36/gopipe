@@ -115,8 +115,6 @@ func (p *pipelineRun[pt]) runStep( //nolint:gocognit // nn
 	ctx, span := p.tracer.Start(ctx, step.Name, trace.WithAttributes(attrs...))
 	defer span.End()
 
-	failedRecorded := false
-
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("step panicked: %v", r)
@@ -124,12 +122,10 @@ func (p *pipelineRun[pt]) runStep( //nolint:gocognit // nn
 			log.ErrorContext(ctx, "[gopipe] step panicked", slog.Any("err", err))
 		}
 
-		if err != nil && !failedRecorded {
+		if err != nil {
 			p.recordStepFailed(step.Name)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-		} else if !failedRecorded {
-			span.SetStatus(codes.Ok, "")
 		}
 	}()
 
@@ -156,15 +152,18 @@ func (p *pipelineRun[pt]) runStep( //nolint:gocognit // nn
 		err = step.Run(ctx, payload)
 		if err == nil {
 			p.recordStepSucceed(step.Name)
+			span.SetStatus(codes.Ok, "")
+
 			return nil
 		}
 
 		if attempt == attempts {
 			if step.ContinueOnError {
 				span.AddEvent("Continue on error")
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
 
 				p.recordStepFailed(step.Name)
-				failedRecorded = true
 
 				log.WarnContext(ctx, "[gopipe] step failed but continue", slog.Any("err", err))
 				return nil
