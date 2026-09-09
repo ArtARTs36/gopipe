@@ -96,6 +96,8 @@ func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
 		}
 	}
 
+	pipeSpan.SetStatus(codes.Ok, "")
+
 	return nil
 }
 
@@ -126,6 +128,8 @@ func (p *pipelineRun[pt]) runStep( //nolint:gocognit // nn
 			p.recordStepFailed(step.Name)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
+		} else if !failedRecorded {
+			span.SetStatus(codes.Ok, "")
 		}
 	}()
 
