@@ -50,7 +50,7 @@ func newPipelineRun[pt any](
 func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
 	runID := uuid.Must(uuid.NewV7()).String()
 
-	ctx, pipeSpan := p.tracer.Start(ctx, p.pipelineName+".Start", trace.WithAttributes(
+	ctx, pipeSpan := p.tracer.Start(ctx, p.pipelineName, trace.WithAttributes(
 		attribute.String("gopipe.pipeline.run_id", runID)),
 	)
 	defer pipeSpan.End()
