@@ -99,12 +99,20 @@ func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
 	return nil
 }
 
-func (p *pipelineRun[pt]) runStep( //nolint:gocognit // nn
+func (p *pipelineRun[pt]) runStep(
 	ctx context.Context,
 	log *slog.Logger,
 	step Step[pt],
 	payload pt,
 ) (err error) {
+	log = log.With(slog.String("pipeline.step_name", step.Name))
+
+	if !step.when(payload, &p.result) {
+		log.DebugContext(ctx, "[gopipe] skip step")
+
+		return nil
+	}
+
 	var attrs []attribute.KeyValue
 	if step.Attributes.Trace != nil {
 		attrs = step.Attributes.Trace(payload)
@@ -113,34 +121,13 @@ func (p *pipelineRun[pt]) runStep( //nolint:gocognit // nn
 	ctx, span := p.tracer.Start(ctx, step.Name, trace.WithAttributes(attrs...))
 	defer span.End()
 
-	failedRecorded := false
-
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("step panicked: %v", r)
 
-			log.ErrorContext(ctx, "[gopipe] step panicked", slog.Any("err", err))
-		}
-
-		if err != nil && !failedRecorded {
-			p.recordStepFailed(step.Name)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
+			p.recordStepFailed(ctx, log, step, span, err)
 		}
 	}()
-
-	log = log.With(slog.String("pipeline.step_name", step.Name))
-
-	if step.When != nil {
-		if !step.When(payload, Run{
-			result: &p.result,
-		}) {
-			log.DebugContext(ctx, "[gopipe] skip step")
-			span.AddEvent("Skipped")
-
-			return nil
-		}
-	}
 
 	p.metrics.IncStepStarted(p.pipelineName, step.Name)
 
@@ -151,22 +138,18 @@ func (p *pipelineRun[pt]) runStep( //nolint:gocognit // nn
 	for attempt := uint(1); attempt <= attempts; attempt++ {
 		err = step.Run(ctx, payload)
 		if err == nil {
-			p.recordStepSucceed(step.Name)
+			p.recordStepSucceed(step.Name, span)
 			return nil
 		}
 
 		if attempt == attempts {
+			p.recordStepFailed(ctx, log, step, span, err)
+
 			if step.ContinueOnError {
 				span.AddEvent("Continue on error")
-
-				p.recordStepFailed(step.Name)
-				failedRecorded = true
-
-				log.WarnContext(ctx, "[gopipe] step failed but continue", slog.Any("err", err))
 				return nil
 			}
 
-			log.ErrorContext(ctx, "[gopipe] step failed", slog.Any("err", err))
 			return err
 		}
 
@@ -193,12 +176,25 @@ func (p *pipelineRun[pt]) runStep( //nolint:gocognit // nn
 	return nil
 }
 
-func (p *pipelineRun[pt]) recordStepSucceed(stepName string) {
+func (p *pipelineRun[pt]) recordStepSucceed(stepName string, span trace.Span) {
 	p.result.succeed[stepName] = struct{}{}
 	p.metrics.IncStepSucceed(p.pipelineName, stepName)
+
+	span.SetStatus(codes.Ok, "")
 }
 
-func (p *pipelineRun[pt]) recordStepFailed(stepName string) {
-	p.result.failed[stepName] = struct{}{}
-	p.metrics.IncStepFailed(p.pipelineName, stepName)
+func (p *pipelineRun[pt]) recordStepFailed(
+	ctx context.Context,
+	log *slog.Logger,
+	step Step[pt],
+	span trace.Span,
+	err error,
+) {
+	log.ErrorContext(ctx, "[gopipe] step failed", slog.Any("err", err))
+
+	p.result.failed[step.Name] = struct{}{}
+	p.metrics.IncStepFailed(p.pipelineName, step.Name)
+
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
 }

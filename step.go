@@ -32,6 +32,12 @@ func When[pt any](when func(payload pt) bool) func(payload pt, run Run) bool {
 	}
 }
 
+func (p *Step[pt]) when(payload pt, res *pipelineRunResult) bool {
+	return p.When == nil || p.When(payload, Run{
+		result: res,
+	})
+}
+
 func (p *Run) StepSucceed(stepName string) bool {
 	_, ok := p.result.succeed[stepName]
 	return ok
