@@ -25,12 +25,9 @@ import (
 	"fmt"
 
 	"github.com/artarts36/gopipe"
-	"github.com/artarts36/gopipe/pkg/prometheus"
 )
 
 func main() {
-	prometheus.MustRegister()
-
 	type payload struct {
 		firstName string
 		lastName  string
@@ -67,14 +64,11 @@ package main
 import (
 	"context"
 	"fmt"
-	
+
 	"github.com/artarts36/gopipe"
-	"github.com/artarts36/gopipe/pkg/prometheus"
 )
 
 func main() {
-	prometheus.MustRegister()
-
 	type payload struct {
 		firstName string
 		lastName  string
@@ -118,12 +112,9 @@ import (
 	"fmt"
 
 	"github.com/artarts36/gopipe"
-	"github.com/artarts36/gopipe/pkg/prometheus"
 )
 
 func main() {
-	prometheus.MustRegister()
-
 	type payload struct {
 		firstName string
 		lastName  string
@@ -164,12 +155,9 @@ import (
 	"time"
 
 	"github.com/artarts36/gopipe"
-	"github.com/artarts36/gopipe/pkg/prometheus"
 )
 
 func main() {
-	prometheus.MustRegister()
-
 	type payload struct {
 		attempts int
 	}
