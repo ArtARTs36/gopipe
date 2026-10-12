@@ -15,7 +15,7 @@ import (
 type pipelineRun[pt any] struct {
 	log          *slog.Logger
 	pipelineName string
-	metrics      Metrics
+	metrics      *pipelineMetrics
 	steps        []Step[pt]
 
 	result pipelineRunResult
@@ -31,7 +31,7 @@ func newPipelineRun[pt any](
 	log *slog.Logger,
 	pipelineName string,
 	steps []Step[pt],
-	metrics Metrics,
+	metrics *pipelineMetrics,
 	tracer trace.Tracer,
 ) *pipelineRun[pt] {
 	return &pipelineRun[pt]{
@@ -57,7 +57,7 @@ func (p *pipelineRun[pt]) run(ctx context.Context, payload pt) error {
 
 	log := p.log.With(slog.String("pipeline.run_id", runID))
 
-	p.metrics.IncPipelineStarted(p.pipelineName)
+	p.metrics.recordPipelineStarted(ctx, p.pipelineName)
 
 	log.DebugContext(ctx, "[gopipe] running pipeline")
 
@@ -129,7 +129,7 @@ func (p *pipelineRun[pt]) runStep(
 		}
 	}()
 
-	p.metrics.IncStepStarted(p.pipelineName, step.Name)
+	p.metrics.recordStepStarted(ctx, p.pipelineName, step.Name)
 
 	log.DebugContext(ctx, "[gopipe] running step")
 
@@ -138,7 +138,7 @@ func (p *pipelineRun[pt]) runStep(
 	for attempt := uint(1); attempt <= attempts; attempt++ {
 		err = step.Run(ctx, payload)
 		if err == nil {
-			p.recordStepSucceed(step.Name, span)
+			p.recordStepSucceed(ctx, step.Name, span)
 			return nil
 		}
 
@@ -176,9 +176,9 @@ func (p *pipelineRun[pt]) runStep(
 	return nil
 }
 
-func (p *pipelineRun[pt]) recordStepSucceed(stepName string, span trace.Span) {
+func (p *pipelineRun[pt]) recordStepSucceed(ctx context.Context, stepName string, span trace.Span) {
 	p.result.succeed[stepName] = struct{}{}
-	p.metrics.IncStepSucceed(p.pipelineName, stepName)
+	p.metrics.recordStepSucceed(ctx, p.pipelineName, stepName)
 
 	span.SetStatus(codes.Ok, "")
 }
@@ -193,7 +193,7 @@ func (p *pipelineRun[pt]) recordStepFailed(
 	log.ErrorContext(ctx, "[gopipe] step failed", slog.Any("err", err))
 
 	p.result.failed[step.Name] = struct{}{}
-	p.metrics.IncStepFailed(p.pipelineName, step.Name)
+	p.metrics.recordStepFailed(ctx, p.pipelineName, step.Name)
 
 	span.RecordError(err)
 	span.SetStatus(codes.Error, err.Error())
